@@ -1,18 +1,11 @@
-"""
-ValueBet FC — Application Factory
-"""
-import os
-import logging
+import logging, sys, threading
 from flask import Flask
 from app.extensions import db, migrate
-from apscheduler.schedulers.background import BackgroundScheduler
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+logging.basicConfig(level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
-
+CLI_COMMANDS = {"db", "shell", "routes", "flask"}
 
 def create_app():
     app = Flask(__name__)
@@ -29,50 +22,49 @@ def create_app():
     _start_scheduler(app)
     return app
 
-
-def _send_startup_message(app):
-    import threading
-    def _send():
-        try:
-            import requests
-            token = app.config.get("TELEGRAM_BOT_TOKEN")
-            chat_id = app.config.get("TELEGRAM_CHAT_ID")
-            if not token or not chat_id:
-                logger.warning("Telegram non configuré — message ignoré.")
-                return
-            resp = requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "parse_mode": "HTML",
-                    "text": (
-                        "✅ <b>ValueBet FC est en ligne !</b>\n\n"
-                        "🤖 Bot opérationnel sur Railway.\n"
-                        "⏰ Prochaine détection : <b>07h00</b>\n"
-                        "📊 Ligues surveillées : PL · LaLiga · Bundesliga · L1 · Serie A"
-                    ),
-                },
-                timeout=10,
-            )
-            if resp.ok:
-                logger.info("✅ Message Telegram démarrage envoyé.")
-            else:
-                logger.warning(f"Telegram erreur {resp.status_code}: {resp.text}")
-        except Exception as e:
-            logger.error(f"Erreur Telegram démarrage: {e}")
-    threading.Thread(target=_send, daemon=True).start()
-
-
-def _start_scheduler(app: Flask):
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] in {"db", "shell", "routes"}:
+def _start_scheduler(app):
+    if len(sys.argv) > 1 and sys.argv[1] in CLI_COMMANDS:
         logger.info("Commande CLI — scheduler non démarré.")
         return
+    from apscheduler.schedulers.background import BackgroundScheduler
     scheduler = BackgroundScheduler(timezone="Europe/Paris")
     from app.scheduler.jobs import register_jobs
     register_jobs(scheduler, app)
     scheduler.start()
     logger.info("✅ APScheduler démarré.")
-    _send_startup_message(app)
+    from app.telegram.bot import start_polling
+    start_polling(app)
+    _send_startup(app)
     import atexit
     atexit.register(lambda: scheduler.shutdown(wait=False))
+
+def _send_startup(app):
+    def _send():
+        import time, requests
+        time.sleep(3)
+        try:
+            token   = app.config.get("TELEGRAM_BOT_TOKEN","")
+            chat_id = app.config.get("TELEGRAM_CHAT_ID","")
+            if not token or not chat_id: return
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "parse_mode": "HTML",
+                    "text": (
+                        "✅ <b>ValueBet FC est en ligne !</b>\n\n"
+                        "🤖 Bot opérationnel sur Railway.\n"
+                        "⏰ Détections : <b>07h · 12h · 17h · 21h</b>\n\n"
+                        "👇 <b>Utilise le menu ci-dessous</b>"
+                    ),
+                    "reply_markup": {"inline_keyboard": [
+                        [{"text":"📊 Stats","callback_data":"cmd_stats"},
+                         {"text":"🔍 Analyse","callback_data":"cmd_analyse"}],
+                        [{"text":"✅ Résultats","callback_data":"cmd_check"},
+                         {"text":"🎯 Bets","callback_data":"cmd_bets"}],
+                        [{"text":"⚙️ Paramètres","callback_data":"cmd_params"},
+                         {"text":"❓ Aide","callback_data":"cmd_help"}],
+                    ]}},
+                timeout=10)
+            logger.info("✅ Message Telegram démarrage envoyé.")
+        except Exception as e:
+            logger.error(f"Erreur Telegram startup: {e}")
+    threading.Thread(target=_send, daemon=True).start()
