@@ -1,5 +1,8 @@
+"""
+Client The Odds API v4
+Rotation automatique sur jusqu'à 5 clés API.
+"""
 import logging
-from typing import Optional
 
 import requests
 
@@ -7,149 +10,125 @@ from app.config import Config
 
 logger = logging.getLogger(__name__)
 
-BASE = Config.ODDS_API_BASE
-API_KEY = Config.ODDS_API_KEY
-TIMEOUT = 15
+BASE_URL = "https://api.the-odds-api.com/v4"
 
-# Mapping sport_key par ligue (API-Football league_id → The Odds API sport_key)
-LEAGUE_SPORT_MAP = {
-    39: "soccer_epl",
-    140: "soccer_spain_la_liga",
-    78: "soccer_germany_bundesliga",
-    61: "soccer_france_ligue_one",
-    135: "soccer_italy_serie_a",
+# Correspondance ID football-data.org → sport key The Odds API
+LEAGUE_SPORT_KEY = {
+    2021: "soccer_epl",
+    2014: "soccer_spain_la_liga",
+    2015: "soccer_france_ligue1",
+    2002: "soccer_germany_bundesliga",
+    2019: "soccer_italy_serie_a",
+    2001: "soccer_uefa_champs_league",
+    2018: "soccer_uefa_europa_league",
+    2003: "soccer_netherlands_eredivisie",
+    2017: "soccer_portugal_primeira_liga",
 }
 
-BOOKMAKERS = ",".join(Config.BOOKMAKERS)
+MARKET_MAP = {
+    "1X2":     "h2h",
+    "OVER_25": "totals",
+    "UNDER_25": "totals",
+    "BTTS":    "btts",
+}
+
+BOOKMAKERS_FR = [
+    "betclic_fr", "unibet_fr", "winamax_fr", "bwin_fr", "pmu_fr",
+    "betclic",    "unibet",    "winamax",    "bwin",
+]
+
+_key_index = 0
 
 
-def _get(endpoint: str, params: dict) -> Optional[dict]:
-    url = f"{BASE}/{endpoint}"
-    params["apiKey"] = API_KEY
-    try:
-        resp = requests.get(url, params=params, timeout=TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.exceptions.Timeout:
-        logger.error("Odds API timeout: %s", url)
-    except requests.exceptions.RequestException as e:
-        logger.error("Odds API error: %s", e)
+def _next_key() -> str | None:
+    global _key_index
+    keys = Config.ODDS_API_KEYS
+    if not keys:
+        return None
+    key = keys[_key_index % len(keys)]
+    _key_index += 1
+    return key
+
+
+def _get(endpoint: str, params: dict) -> list | dict | None:
+    for _ in range(len(Config.ODDS_API_KEYS) or 1):
+        key = _next_key()
+        if not key:
+            logger.warning("Aucune clé Odds API configurée.")
+            return None
+        try:
+            params["apiKey"] = key
+            r = requests.get(f"{BASE_URL}{endpoint}", params=params, timeout=15)
+            remaining = r.headers.get("x-requests-remaining", "?")
+            logger.info("Odds API — clé …%s | quota restant: %s", key[-4:], remaining)
+            if r.status_code == 401 or remaining == "0":
+                logger.warning("Clé épuisée — rotation vers la suivante.")
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.RequestException as e:
+            logger.error("Odds API erreur: %s", e)
     return None
 
 
-def fetch_odds_for_sport(league_id: int) -> list:
-    """Récupère les cotes 1X2, O/U 2.5 et BTTS pour une ligue."""
-    sport_key = LEAGUE_SPORT_MAP.get(league_id)
+def fetch_odds_for_league(league_id: int) -> list:
+    sport_key = LEAGUE_SPORT_KEY.get(league_id)
     if not sport_key:
-        logger.warning("No sport key for league %s", league_id)
+        logger.warning("Ligue %d non mappée dans Odds API.", league_id)
         return []
-
-    results = []
-
-    # Marché 1X2
     data = _get(
-        f"sports/{sport_key}/odds",
-        {
-            "regions": "fr",
-            "markets": "h2h",
-            "bookmakers": BOOKMAKERS,
+        f"/sports/{sport_key}/odds",
+        params={
+            "regions":  "eu",
+            "markets":  "h2h,totals,btts",
             "oddsFormat": "decimal",
         },
     )
-    if data:
-        results.extend(_parse_events(data, "1X2"))
-
-    # Over/Under 2.5
-    data = _get(
-        f"sports/{sport_key}/odds",
-        {
-            "regions": "fr",
-            "markets": "totals",
-            "bookmakers": BOOKMAKERS,
-            "oddsFormat": "decimal",
-        },
-    )
-    if data:
-        results.extend(_parse_events(data, "TOTALS"))
-
-    # BTTS
-    data = _get(
-        f"sports/{sport_key}/odds",
-        {
-            "regions": "fr",
-            "markets": "btts",
-            "bookmakers": BOOKMAKERS,
-            "oddsFormat": "decimal",
-        },
-    )
-    if data:
-        results.extend(_parse_events(data, "BTTS"))
-
-    return results
+    return data if isinstance(data, list) else []
 
 
-def _parse_events(events: list, market_type: str) -> list:
-    """Normalise les événements de l'API Odds en structure exploitable."""
-    parsed = []
-    for event in events:
-        home = event.get("home_team", "")
-        away = event.get("away_team", "")
-        commence = event.get("commence_time", "")
-        event_id = event.get("id", "")
+def get_best_odd(all_odds: list, home_name: str, away_name: str,
+                 market: str, selection: str) -> tuple:
+    api_market = MARKET_MAP.get(market)
+    if not api_market:
+        return 0.0, ""
+
+    best_odd = 0.0
+    best_bm  = ""
+
+    home_lower = home_name.lower()
+    away_lower = away_name.lower()
+
+    for event in all_odds:
+        h = event.get("home_team", "").lower()
+        a = event.get("away_team", "").lower()
+        if not (home_lower in h or h in home_lower):
+            continue
+        if not (away_lower in a or a in away_lower):
+            continue
 
         for bm in event.get("bookmakers", []):
-            bm_key = bm.get("key", "")
-            for market in bm.get("markets", []):
-                for outcome in market.get("outcomes", []):
-                    parsed.append(
-                        {
-                            "event_id": event_id,
-                            "home_team": home,
-                            "away_team": away,
-                            "commence_time": commence,
-                            "bookmaker": bm_key,
-                            "market_type": market_type,
-                            "market_key": market.get("key", ""),
-                            "selection": outcome.get("name", ""),
-                            "odd": float(outcome.get("price", 0)),
-                            "point": outcome.get("point"),  # pour O/U
-                        }
-                    )
-    return parsed
+            for mkt in bm.get("markets", []):
+                if mkt.get("key") != api_market:
+                    continue
+                for outcome in mkt.get("outcomes", []):
+                    if _matches_selection(outcome, market, selection):
+                        odd = float(outcome.get("price", 0))
+                        if odd > best_odd:
+                            best_odd = odd
+                            best_bm  = bm.get("key", "")
+    return best_odd, best_bm
 
 
-def get_best_odds(
-    all_odds: list, home_team: str, away_team: str, market: str, selection: str
-) -> tuple[float, str]:
-    """Retourne la meilleure cote et le bookmaker pour un marché/sélection."""
-    candidates = [
-        o
-        for o in all_odds
-        if _fuzzy_match(o["home_team"], home_team)
-        and _fuzzy_match(o["away_team"], away_team)
-        and o["market_type"] == market
-        and _normalize_selection(o["selection"]) == _normalize_selection(selection)
-    ]
-    if not candidates:
-        return 0.0, ""
-    best = max(candidates, key=lambda x: x["odd"])
-    return best["odd"], best["bookmaker"]
-
-
-def _fuzzy_match(a: str, b: str) -> bool:
-    """Matching tolérant pour les noms d'équipes."""
-    a, b = a.lower().strip(), b.lower().strip()
-    return a == b or a in b or b in a or a[:6] == b[:6]
-
-
-def _normalize_selection(sel: str) -> str:
-    mapping = {
-        "home": "HOME", "1": "HOME",
-        "draw": "DRAW", "x": "DRAW",
-        "away": "AWAY", "2": "AWAY",
-        "over": "OVER",
-        "under": "UNDER",
-        "yes": "YES",
-        "no": "NO",
-    }
-    return mapping.get(sel.lower(), sel.upper())
+def _matches_selection(outcome: dict, market: str, selection: str) -> bool:
+    name = outcome.get("name", "").upper()
+    point = outcome.get("point")
+    if market == "1X2":
+        return {"HOME": "HOME", "DRAW": "DRAW", "AWAY": "AWAY"}.get(selection) == name
+    elif market == "OVER_25":
+        return name == "OVER" and point is not None and float(point) == 2.5
+    elif market == "UNDER_25":
+        return name == "UNDER" and point is not None and float(point) == 2.5
+    elif market == "BTTS":
+        return name == selection.upper()
+    return False
