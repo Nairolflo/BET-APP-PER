@@ -5,7 +5,7 @@ import os
 import logging
 from flask import Flask
 from app.extensions import db, migrate
-from apscheduler.schedulers.background import BackgroundScheduler  # ← import direct
+from apscheduler.schedulers.background import BackgroundScheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,51 +16,63 @@ logger = logging.getLogger(__name__)
 
 def create_app():
     app = Flask(__name__)
-
-    # ── Config ───────────────────────────────────────────────
     from app.config import Config
     app.config.from_object(Config)
-
-    # ── Extensions ───────────────────────────────────────────
     db.init_app(app)
     migrate.init_app(app, db)
-
-    # ── Blueprints ───────────────────────────────────────────
     from app.routes.dashboard import dashboard_bp
     from app.routes.api import api_bp
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
-
-    # ── Modèles (pour Flask-Migrate) ─────────────────────────
     with app.app_context():
         from app.models import team, match, odds, value_bet, daily_summary
-
-    # ── Scheduler ────────────────────────────────────────────
     _start_scheduler(app)
-
     return app
 
 
+def _send_startup_message(app):
+    import threading
+    def _send():
+        try:
+            import requests
+            token = app.config.get("TELEGRAM_BOT_TOKEN")
+            chat_id = app.config.get("TELEGRAM_CHAT_ID")
+            if not token or not chat_id:
+                logger.warning("Telegram non configuré — message ignoré.")
+                return
+            resp = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "parse_mode": "HTML",
+                    "text": (
+                        "✅ <b>ValueBet FC est en ligne !</b>\n\n"
+                        "🤖 Bot opérationnel sur Railway.\n"
+                        "⏰ Prochaine détection : <b>07h00</b>\n"
+                        "📊 Ligues surveillées : PL · LaLiga · Bundesliga · L1 · Serie A"
+                    ),
+                },
+                timeout=10,
+            )
+            if resp.ok:
+                logger.info("✅ Message Telegram démarrage envoyé.")
+            else:
+                logger.warning(f"Telegram erreur {resp.status_code}: {resp.text}")
+        except Exception as e:
+            logger.error(f"Erreur Telegram démarrage: {e}")
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def _start_scheduler(app: Flask):
-    """Démarre APScheduler uniquement hors contexte flask db upgrade/migrate."""
-
-    # Ne pas lancer le scheduler pendant les commandes CLI Flask
     import sys
-    cli_commands = {"db", "shell", "routes"}
-    if len(sys.argv) > 1 and sys.argv[1] in cli_commands:
-        logger.info("Commande CLI détectée — scheduler non démarré.")
+    if len(sys.argv) > 1 and sys.argv[1] in {"db", "shell", "routes"}:
+        logger.info("Commande CLI — scheduler non démarré.")
         return
-
-    # Créer l'instance APScheduler ICI (pas via extensions)
     scheduler = BackgroundScheduler(timezone="Europe/Paris")
-
-    # Enregistrer les jobs
     from app.scheduler.jobs import register_jobs
     register_jobs(scheduler, app)
-
     scheduler.start()
-    logger.info("✅ APScheduler démarré — jobs enregistrés.")
-
-    # Arrêt propre à la fermeture de l'app
+    logger.info("✅ APScheduler démarré.")
+    _send_startup_message(app)
     import atexit
     atexit.register(lambda: scheduler.shutdown(wait=False))
