@@ -80,7 +80,7 @@ def fetch_odds_for_league(league_id: int) -> list:
         f"/sports/{sport_key}/odds",
         params={
             "regions":  "eu",
-            "markets":  "h2h,totals,btts",
+            "markets":  "h2h,totals",
             "oddsFormat": "decimal",
         },
     )
