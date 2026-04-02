@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 def _api(token, method, payload):
     url = f"https://api.telegram.org/bot{token}/{method}"
     try:
-        r = requests.post(url, json=payload, timeout=15)
+        r = requests.post(url, json=payload, timeout=40)
         return r.json()
     except Exception as e:
         logger.error(f"Telegram API error ({method}): {e}")
@@ -100,8 +100,14 @@ def handle_analyse(app):
     def _run():
         try:
             with app.app_context():
-                from app.scheduler.jobs import run_detection_cycle
-                run_detection_cycle(app)
+                from app.scheduler.tasks import (
+                    fetch_and_store_fixtures, fetch_and_store_odds,
+                    run_detection, send_detections_today,
+                )
+                fetch_and_store_fixtures()
+                fetch_and_store_odds()
+                run_detection()
+                send_detections_today()
         except Exception as e:
             logger.error(f"Analyse manuelle erreur: {e}")
     threading.Thread(target=_run, daemon=True).start()
