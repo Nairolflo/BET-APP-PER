@@ -16,7 +16,7 @@ BASE_URL = "https://api.the-odds-api.com/v4"
 LEAGUE_SPORT_KEY = {
     2021: "soccer_epl",
     2014: "soccer_spain_la_liga",
-    2015: "soccer_france_ligue1",
+    2015: "soccer_france_ligue_one",
     2002: "soccer_germany_bundesliga",
     2019: "soccer_italy_serie_a",
     2001: "soccer_uefa_champs_league",

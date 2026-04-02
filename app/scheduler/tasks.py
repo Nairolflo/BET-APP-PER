@@ -244,8 +244,8 @@ def _best_odd_db(match_id: int, market: str, selection: str):
 def update_results():      update_match_results_from_api()
 def validate_bets():       validate_pending_bets()
 def compute_summaries():   _rebuild_daily_summaries()
-def send_detections_today(): send_detections(date.today())
-def send_summary_today():  send_daily_summary(date.today())
+def send_detections_today(app=None): send_detections(app, date.today())
+def send_summary_today(app=None): send_daily_summary(app, date.today())
 
 
 def refresh_team_stats():

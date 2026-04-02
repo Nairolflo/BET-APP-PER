@@ -32,7 +32,7 @@ def _morning(app):
             fetch_and_store_fixtures()
             fetch_and_store_odds()
             run_detection()
-            send_detections_today()
+            send_detections_today(app)
             logger.info("[SCHEDULER] Morning OK")
         except Exception as e:
             logger.error("[SCHEDULER] Morning ERREUR: %s", e, exc_info=True)
@@ -49,7 +49,7 @@ def _evening(app):
             update_results()
             validate_bets()
             compute_summaries()
-            send_summary_today()
+            send_summary_today(app)
             logger.info("[SCHEDULER] Evening OK")
         except Exception as e:
             logger.error("[SCHEDULER] Evening ERREUR: %s", e, exc_info=True)
