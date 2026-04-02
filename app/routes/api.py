@@ -106,3 +106,6 @@ def trigger_evening():
     )
     update_results(); validate_bets(); compute_summaries(); send_summary_today()
     return jsonify({"status": "ok", "message": "Pipeline soir exécuté."})
+@api_bp.route("/health")
+def health():
+    return {"status": "ok"}, 200
