@@ -19,6 +19,7 @@ def create_app():
     app.register_blueprint(api_bp, url_prefix="/api")
     with app.app_context():
         from app.models import team, match, odds, value_bet, daily_summary
+    _auto_migrate(app)
     _start_scheduler(app)
     return app
 
@@ -68,3 +69,25 @@ def _send_startup(app):
         except Exception as e:
             logger.error(f"Erreur Telegram startup: {e}")
     threading.Thread(target=_send, daemon=True).start()
+
+def _auto_migrate(app):
+    """Ajoute les colonnes manquantes au démarrage si besoin."""
+    from sqlalchemy import text
+    with app.app_context():
+        try:
+            db.session.execute(text("""
+                ALTER TABLE daily_summaries
+                    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+                ALTER TABLE matches
+                    ADD COLUMN IF NOT EXISTS round VARCHAR(64),
+                    ADD COLUMN IF NOT EXISTS home_xg FLOAT,
+                    ADD COLUMN IF NOT EXISTS away_xg FLOAT,
+                    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+            """))
+            db.session.commit()
+            logger.info("✅ Auto-migration OK.")
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"Auto-migration: {e}")
