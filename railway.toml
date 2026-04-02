@@ -2,3 +2,8 @@
 startCommand = "gunicorn run:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
+
+[healthcheck]
+path = "/api/stats/global"
+intervalSeconds = 30
+timeoutSeconds = 10
