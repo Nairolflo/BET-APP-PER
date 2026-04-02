@@ -4,8 +4,6 @@ Flask-Migrate
 gunicorn
 APScheduler
 requests
-scipy
-numpy
 python-telegram-bot
 psycopg2-binary
 SQLAlchemy

@@ -1,338 +1,210 @@
 """
 Moteur de détection des value bets.
-Calcule les probabilités estimées via score composite Elo + forme + stats,
-modélisation de Poisson pour O/U, fréquences BTTS, et signal bête noire.
+Probabilités via Elo + forme + Poisson (pur Python) + H2H.
+Signal bête noire.
 """
 import logging
 import math
-from typing import Optional
-from scipy.stats import poisson
 
 from app.config import Config
-from app.models import Team, Match
-from app.extensions import db
 
 logger = logging.getLogger(__name__)
 
-ELO_K = 32  # Facteur K Elo standard
+ELO_K = 32
+HOME_ADVANTAGE_ELO = 50
 
 
-# ─────────────────────────────────────────────
-# Elo helpers
-# ─────────────────────────────────────────────
+# ── Poisson pur Python (sans scipy) ───────────────────────────────────
 
-def expected_score(rating_a: float, rating_b: float) -> float:
-    return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
+def _poisson_pmf(k: int, mu: float) -> float:
+    if mu <= 0:
+        return 1.0 if k == 0 else 0.0
+    return (mu ** k) * math.exp(-mu) / math.factorial(k)
 
 
-def update_elo(
-    rating_home: float, rating_away: float, result: str
-) -> tuple[float, float]:
-    """Mise à jour Elo après un match. result: 'H', 'D', 'A'"""
+# ── Elo ───────────────────────────────────────────────────────────────
+
+def expected_score(ra: float, rb: float) -> float:
+    return 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
+
+
+def update_elo(rating_home: float, rating_away: float, result: str) -> tuple:
     ea = expected_score(rating_home, rating_away)
-    eb = expected_score(rating_away, rating_home)
-    if result == "H":
-        sa, sb = 1.0, 0.0
-    elif result == "A":
-        sa, sb = 0.0, 1.0
-    else:
-        sa, sb = 0.5, 0.5
-    new_home = rating_home + ELO_K * (sa - ea)
-    new_away = rating_away + ELO_K * (sb - eb)
-    return new_home, new_away
+    eb = 1 - ea
+    sa, sb = {"H": (1.0, 0.0), "D": (0.5, 0.5), "A": (0.0, 1.0)}.get(result, (0.5, 0.5))
+    return rating_home + ELO_K * (sa - ea), rating_away + ELO_K * (sb - eb)
 
 
-# ─────────────────────────────────────────────
-# Forme récente
-# ─────────────────────────────────────────────
+# ── Forme récente ─────────────────────────────────────────────────────
 
 def compute_form_score(matches: list, team_id: int, last_n: int = 5) -> float:
-    """
-    Calcule un score de forme entre 0 et 1 basé sur les N derniers matchs.
-    Victoire = 1, Nul = 0.5, Défaite = 0.
-    Pondération exponentielle: matchs récents comptent plus.
-    """
     results = []
     for m in matches[-last_n:]:
         if m.home_team_id == team_id:
-            if m.result == "H":
-                results.append(1.0)
-            elif m.result == "D":
-                results.append(0.5)
-            else:
-                results.append(0.0)
+            pts = {"H": 1.0, "D": 0.5, "A": 0.0}.get(m.result or "", 0.5)
         else:
-            if m.result == "A":
-                results.append(1.0)
-            elif m.result == "D":
-                results.append(0.5)
-            else:
-                results.append(0.0)
-
+            pts = {"A": 1.0, "D": 0.5, "H": 0.0}.get(m.result or "", 0.5)
+        results.append(pts)
     if not results:
         return 0.5
-
     weights = [math.exp(0.3 * i) for i in range(len(results))]
     total_w = sum(weights)
     return sum(r * w for r, w in zip(results, weights)) / total_w
 
 
-# ─────────────────────────────────────────────
-# Score composite 1X2
-# ─────────────────────────────────────────────
+# ── Poisson match ─────────────────────────────────────────────────────
 
-def compute_composite_score(
-    home_team: Team,
-    away_team: Team,
-    home_recent: list,
-    away_recent: list,
-    h2h_matches: list,
-) -> dict:
-    """
-    Retourne les probabilités estimées pour HOME, DRAW, AWAY.
-    Composantes: Elo (40%), forme (25%), stats dom/ext (25%), H2H (10%).
-    """
-    # 1. Probabilité Elo
-    elo_home_win = expected_score(home_team.elo_rating, away_team.elo_rating)
-    # Avantage domicile: +50 Elo points en moyenne
-    elo_home_win_adj = expected_score(
-        home_team.elo_rating + 50, away_team.elo_rating
-    )
-    elo_away_win = 1 - elo_home_win_adj
-    elo_draw = 0.26  # Fréquence historique de nuls (~26%)
-    # Normalize
-    raw_sum = elo_home_win_adj + elo_draw + elo_away_win
-    elo_p = {
-        "HOME": elo_home_win_adj / raw_sum,
-        "DRAW": elo_draw / raw_sum,
-        "AWAY": elo_away_win / raw_sum,
-    }
-
-    # 2. Score de forme
-    form_home = compute_form_score(home_recent, home_team.id)
-    form_away = compute_form_score(away_recent, away_team.id)
-    form_total = form_home + form_away or 1
-    form_p = {
-        "HOME": form_home / form_total * 0.7 + 0.15,
-        "DRAW": 0.30 - abs(form_home - form_away) * 0.2,
-        "AWAY": form_away / form_total * 0.7 + 0.15,
-    }
-    # Normalize
-    fs = sum(form_p.values())
-    form_p = {k: v / fs for k, v in form_p.items()}
-
-    # 3. Stats domicile/extérieur
-    home_att = home_team.avg_goals_scored_home or 1.2
-    home_def = home_team.avg_goals_conceded_home or 1.1
-    away_att = away_team.avg_goals_scored_away or 1.0
-    away_def = away_team.avg_goals_conceded_away or 1.2
-
-    # Buts attendus via Poisson simple
-    mu_home = home_att * (away_def / 1.1)
-    mu_away = away_att * (home_def / 1.1)
-    stats_p = _poisson_match_probs(mu_home, mu_away)
-
-    # 4. H2H
-    h2h_p = _compute_h2h_probs(h2h_matches, home_team.id, away_team.id)
-
-    # Poids finaux
-    weights = {"elo": 0.40, "form": 0.25, "stats": 0.25, "h2h": 0.10}
-    final = {}
-    for outcome in ["HOME", "DRAW", "AWAY"]:
-        final[outcome] = (
-            weights["elo"] * elo_p[outcome]
-            + weights["form"] * form_p[outcome]
-            + weights["stats"] * stats_p[outcome]
-            + weights["h2h"] * h2h_p[outcome]
-        )
-
-    # Renormaliser
-    total = sum(final.values())
-    return {k: v / total for k, v in final.items()}
-
-
-def _poisson_match_probs(mu_home: float, mu_away: float, max_goals: int = 8) -> dict:
-    """Calcule P(home win), P(draw), P(away win) via distribution de Poisson."""
+def poisson_match_probs(mu_home: float, mu_away: float, max_goals: int = 9) -> dict:
     p_home = p_draw = p_away = 0.0
-    for g_h in range(max_goals + 1):
-        for g_a in range(max_goals + 1):
-            p = poisson.pmf(g_h, mu_home) * poisson.pmf(g_a, mu_away)
-            if g_h > g_a:
+    for gh in range(max_goals + 1):
+        for ga in range(max_goals + 1):
+            p = _poisson_pmf(gh, max(mu_home, 0.01)) * _poisson_pmf(ga, max(mu_away, 0.01))
+            if gh > ga:
                 p_home += p
-            elif g_h == g_a:
+            elif gh == ga:
                 p_draw += p
             else:
                 p_away += p
-    total = p_home + p_draw + p_away
-    return {
-        "HOME": p_home / total,
-        "DRAW": p_draw / total,
-        "AWAY": p_away / total,
-    }
+    total = p_home + p_draw + p_away or 1
+    return {"HOME": p_home / total, "DRAW": p_draw / total, "AWAY": p_away / total}
 
 
-def _compute_h2h_probs(
-    h2h_matches: list, home_id: int, away_id: int
-) -> dict:
-    """Probabilités basées sur les confrontations directes historiques."""
+# ── H2H ───────────────────────────────────────────────────────────────
+
+def compute_h2h_probs(h2h_matches: list, home_id: int, away_id: int) -> dict:
     if not h2h_matches:
         return {"HOME": 0.45, "DRAW": 0.26, "AWAY": 0.29}
-
-    wins_home = wins_away = draws = 0
+    wh = wd = wa = 0
     for m in h2h_matches:
         if m.home_team_id == home_id:
-            if m.result == "H":
-                wins_home += 1
-            elif m.result == "D":
-                draws += 1
-            else:
-                wins_away += 1
+            if m.result == "H": wh += 1
+            elif m.result == "D": wd += 1
+            else: wa += 1
         else:
-            if m.result == "A":
-                wins_home += 1
-            elif m.result == "D":
-                draws += 1
-            else:
-                wins_away += 1
+            if m.result == "A": wh += 1
+            elif m.result == "D": wd += 1
+            else: wa += 1
+    t = wh + wd + wa or 1
+    return {"HOME": wh / t, "DRAW": wd / t, "AWAY": wa / t}
 
-    total = wins_home + draws + wins_away or 1
-    return {
-        "HOME": wins_home / total,
-        "DRAW": draws / total,
-        "AWAY": wins_away / total,
+
+# ── Score composite 1X2 ───────────────────────────────────────────────
+
+def compute_1x2_probs(home_team, away_team, home_recent, away_recent, h2h_matches) -> dict:
+    elo_home = expected_score(home_team.elo_rating + HOME_ADVANTAGE_ELO, away_team.elo_rating)
+    elo_away = 1 - elo_home
+    elo_draw = 0.265
+    s = elo_home + elo_draw + elo_away
+    elo_p = {"HOME": elo_home / s, "DRAW": elo_draw / s, "AWAY": elo_away / s}
+
+    fh = compute_form_score(home_recent, home_team.id)
+    fa = compute_form_score(away_recent, away_team.id)
+    ft = fh + fa or 1
+    raw_form = {
+        "HOME": fh / ft * 0.70 + 0.15,
+        "DRAW": 0.28 - abs(fh - fa) * 0.15,
+        "AWAY": fa / ft * 0.70 + 0.15,
     }
+    fs = sum(raw_form.values())
+    form_p = {k: v / fs for k, v in raw_form.items()}
+
+    mu_h = (home_team.avg_goals_scored_home or 1.3) * ((away_team.avg_goals_conceded_away or 1.1) / 1.1)
+    mu_a = (away_team.avg_goals_scored_away or 1.0) * ((home_team.avg_goals_conceded_home or 1.1) / 1.1)
+    stats_p = poisson_match_probs(mu_h, mu_a)
+
+    h2h_p = compute_h2h_probs(h2h_matches, home_team.id, away_team.id)
+
+    w = {"elo": 0.40, "form": 0.25, "stats": 0.25, "h2h": 0.10}
+    final = {}
+    for o in ["HOME", "DRAW", "AWAY"]:
+        final[o] = (
+            w["elo"] * elo_p[o] + w["form"] * form_p[o]
+            + w["stats"] * stats_p[o] + w["h2h"] * h2h_p[o]
+        )
+    t = sum(final.values())
+    return {k: v / t for k, v in final.items()}
 
 
-# ─────────────────────────────────────────────
-# Over/Under via Poisson
-# ─────────────────────────────────────────────
+# ── Over/Under ────────────────────────────────────────────────────────
 
-def compute_over_under_probs(
-    home_team: Team, away_team: Team, threshold: float = 2.5
-) -> dict:
-    """Retourne P(over), P(under) via Poisson."""
-    mu_home = (
-        home_team.avg_goals_scored_home + away_team.avg_goals_conceded_away
-    ) / 2
-    mu_away = (
-        away_team.avg_goals_scored_away + home_team.avg_goals_conceded_home
-    ) / 2
-    mu_total = mu_home + mu_away
-
-    p_over = 0.0
-    p_under = 0.0
-    for total_goals in range(20):
-        p = poisson.pmf(total_goals, mu_total)
-        if total_goals > threshold:
-            p_over += p
-        else:
-            p_under += p
-
-    return {"OVER": p_over, "UNDER": p_under}
+def compute_ou_probs(home_team, away_team, threshold: float = 2.5) -> dict:
+    mu_h = ((home_team.avg_goals_scored_home or 1.3) + (away_team.avg_goals_conceded_away or 1.1)) / 2
+    mu_a = ((away_team.avg_goals_scored_away or 1.0) + (home_team.avg_goals_conceded_home or 1.1)) / 2
+    mu_total = max(mu_h + mu_a, 0.1)
+    p_over = sum(_poisson_pmf(g, mu_total) for g in range(int(threshold) + 1, 20))
+    return {"OVER": p_over, "UNDER": 1 - p_over}
 
 
-# ─────────────────────────────────────────────
-# BTTS
-# ─────────────────────────────────────────────
+# ── BTTS ──────────────────────────────────────────────────────────────
 
-def compute_btts_probs(home_team: Team, away_team: Team) -> dict:
-    """
-    P(BTTS YES) basée sur:
-    - Fréquence BTTS de chaque équipe
-    - Régularité offensive (avg buts marqués)
-    - Fragilité défensive (clean sheet rate)
-    """
-    # Fréquence BTTS directe
-    btts_home = getattr(home_team, "btts_rate_home", 0.5)
-    btts_away = getattr(away_team, "btts_rate_away", 0.5)
-    btts_base = (btts_home + btts_away) / 2
-
-    # Probabilité de marquer (Poisson: 1 - P(0 buts))
-    mu_home_score = home_team.avg_goals_scored_home or 1.2
-    mu_away_score = away_team.avg_goals_scored_away or 1.0
-    p_home_scores = 1 - poisson.pmf(0, mu_home_score)
-    p_away_scores = 1 - poisson.pmf(0, mu_away_score)
-    btts_poisson = p_home_scores * p_away_scores
-
-    # Combinaison 60% fréquences, 40% Poisson
-    btts_yes = 0.60 * btts_base + 0.40 * btts_poisson
-    btts_yes = max(0.05, min(0.95, btts_yes))
-
+def compute_btts_probs(home_team, away_team) -> dict:
+    btts_freq = ((home_team.btts_rate_home or 0.5) + (away_team.btts_rate_away or 0.5)) / 2
+    mu_h = home_team.avg_goals_scored_home or 1.3
+    mu_a = away_team.avg_goals_scored_away or 1.0
+    p_h_scores = 1 - _poisson_pmf(0, max(mu_h, 0.01))
+    p_a_scores = 1 - _poisson_pmf(0, max(mu_a, 0.01))
+    btts_poisson = p_h_scores * p_a_scores
+    btts_yes = max(0.05, min(0.95, 0.60 * btts_freq + 0.40 * btts_poisson))
     return {"YES": btts_yes, "NO": 1 - btts_yes}
 
 
-# ─────────────────────────────────────────────
-# Signal Bête Noire
-# ─────────────────────────────────────────────
+# ── Bête Noire ────────────────────────────────────────────────────────
 
-def detect_bete_noire(
-    h2h_matches: list, challenger_id: int, opponent_id: int
-) -> tuple[bool, float, str]:
-    """
-    Détecte si challenger_id réussit régulièrement contre opponent_id
-    malgré une logique statistique potentiellement inverse.
-    Retourne: (is_bete_noire, win_rate, explanation)
-    """
-    min_matches = Config.BETE_NOIRE_MIN_MATCHES
-    threshold = Config.BETE_NOIRE_WIN_RATE
-
-    challenger_wins = total = 0
+def detect_bete_noire(h2h_matches: list, challenger_id: int) -> tuple:
+    mn = Config.BETE_NOIRE_MIN_MATCHES
+    thresh = Config.BETE_NOIRE_WIN_RATE
+    wins = total = 0
     for m in h2h_matches:
-        if m.result in ("H", "A", "D"):
-            total += 1
-            if m.home_team_id == challenger_id and m.result == "H":
-                challenger_wins += 1
-            elif m.away_team_id == challenger_id and m.result == "A":
-                challenger_wins += 1
-
-    if total < min_matches:
+        total += 1
+        if (m.home_team_id == challenger_id and m.result == "H") or \
+           (m.away_team_id == challenger_id and m.result == "A"):
+            wins += 1
+    if total < mn:
         return False, 0.0, ""
-
-    win_rate = challenger_wins / total
-    if win_rate >= threshold:
-        explanation = (
-            f"Bête noire détectée: {win_rate*100:.0f}% de victoires "
-            f"sur les {total} dernières confrontations directes."
-        )
-        return True, win_rate, explanation
-
-    return False, win_rate, ""
+    rate = wins / total
+    if rate >= thresh:
+        return True, rate, f"Bête noire: {rate*100:.0f}% sur {total} confrontations."
+    return False, rate, ""
 
 
-# ─────────────────────────────────────────────
-# Calcul Edge + Value Bet
-# ─────────────────────────────────────────────
+# ── Edge & Bankroll ───────────────────────────────────────────────────
 
 def compute_edge(estimated_prob: float, odd: float) -> float:
-    """Edge = prob_estimée - prob_implicite."""
     if odd <= 1.0:
         return -1.0
-    implied_prob = 1.0 / odd
-    return estimated_prob - implied_prob
+    return estimated_prob - (1.0 / odd)
 
 
 def is_value_bet(edge: float) -> bool:
     return edge >= Config.EDGE_THRESHOLD
 
 
-def build_reason(
-    market: str,
-    selection: str,
-    estimated_prob: float,
-    implied_prob: float,
-    edge: float,
-    form_home: float,
-    form_away: float,
-    bete_noire: bool,
-    bete_noire_rate: float = 0.0,
-) -> str:
+def kelly_stake(estimated_prob: float, odd: float) -> float:
+    b = odd - 1.0
+    if b <= 0 or estimated_prob <= 0:
+        return 0.0
+    kelly = (estimated_prob * b - (1 - estimated_prob)) / b
+    if kelly <= 0:
+        return 0.0
+    stake = round(kelly * Config.KELLY_FRACTION * 4) / 4
+    return min(stake, Config.MAX_STAKE_UNITS)
+
+
+def compute_confidence(edge: float, stake: float, h2h_count: int, avg_form: float) -> float:
+    e = min(edge / 0.20, 1.0) * 0.40
+    s = min(stake / Config.MAX_STAKE_UNITS, 1.0) * 0.20
+    h = min(h2h_count / 10, 1.0) * 0.20
+    f = avg_form * 0.20
+    return round(e + s + h + f, 3)
+
+
+def build_reason(market, selection, est_prob, implied_prob, edge,
+                 fh, fa, is_bn, bn_rate=0.0) -> str:
     parts = [
-        f"Marché {market} / {selection}.",
-        f"Prob. estimée: {estimated_prob*100:.1f}% vs implicite: {implied_prob*100:.1f}% → Edge: +{edge*100:.1f}%.",
-        f"Forme domicile: {form_home*100:.0f}% | Forme extérieur: {form_away*100:.0f}%.",
+        f"Marché {market}/{selection}.",
+        f"Prob. estimée {est_prob*100:.1f}% vs implicite {implied_prob*100:.1f}% → Edge +{edge*100:.1f}%.",
+        f"Forme dom. {fh*100:.0f}% | ext. {fa*100:.0f}%.",
     ]
-    if bete_noire:
-        parts.append(
-            f"⚠️ Signal bête noire actif ({bete_noire_rate*100:.0f}% H2H)."
-        )
+    if is_bn:
+        parts.append(f"⚠️ Bête noire ({bn_rate*100:.0f}% H2H).")
     return " ".join(parts)
