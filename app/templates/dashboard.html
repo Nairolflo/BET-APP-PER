@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %} — Dashboard{% endblock %}
+
+{% block content %}
+
+<section class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">ROI Global</div>
+    <div class="kpi-value {{ 'positive' if stats.roi >= 0 else 'negative' }}">
+      {{ '+' if stats.roi >= 0 else '' }}{{ stats.roi }}%
+    </div>
+    <div class="kpi-sub">7 jours: {{ '+' if stats.roi_7d >= 0 else '' }}{{ stats.roi_7d }}%</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Unités Totales</div>
+    <div class="kpi-value {{ 'positive' if stats.profit_units >= 0 else 'negative' }}">
+      {{ '+' if stats.profit_units >= 0 else '' }}{{ stats.profit_units }}u
+    </div>
+    <div class="kpi-sub">{{ stats.total }} paris résolus</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Taux de Réussite</div>
+    <div class="kpi-value neutral">{{ stats.win_rate }}%</div>
+    <div class="kpi-sub">{{ stats.won }}W / {{ stats.lost }}L</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Value Bets Actifs</div>
+    <div class="kpi-value accent">{{ stats.pending }}</div>
+    <div class="kpi-sub">détectés aujourd'hui</div>
+  </div>
+</section>
+
+{% if streak %}
+<section class="section">
+  <h2 class="section-title">Série Récente</h2>
+  <div class="streak-row">
+    {% for bet in streak %}
+      <span class="streak-badge {{ 'won' if bet.status == 'WON' else 'lost' }}"
+            title="{{ bet.market }}/{{ bet.selection }}">
+        {{ '✅' if bet.status == 'WON' else '❌' }}
+      </span>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section">
+  <h2 class="section-title">
+    Value Bets du Jour
+    <span class="badge-count">{{ bets|length }}</span>
+  </h2>
+
+  {% if not bets %}
+  <div class="empty-state">
+    <span class="empty-icon">📭</span>
+    <p>Aucun value bet détecté aujourd'hui.<br>
+       Le pipeline matin tournera automatiquement à 07h00.</p>
+    <a href="#" onclick="triggerMorning()" class="btn-trigger">▶ Lancer manuellement</a>
+  </div>
+  {% else %}
+  <div class="bets-grid">
+    {% for bet in bets %}
+    {% set match = bet.match %}
+    <div class="bet-card {{ 'bete-noire' if bet.is_bete_noire else '' }}">
+
+      <div class="bet-card-header">
+        <div class="bet-teams">
+          <span class="team-name">{{ match.home_team.name if match.home_team else '?' }}</span>
+          <span class="vs">vs</span>
+          <span class="team-name">{{ match.away_team.name if match.away_team else '?' }}</span>
+        </div>
+        <div class="bet-badges">
+          <span class="market-badge mkt-{{ bet.market|lower|replace('_','') }}">
+            {{ bet.market }}
+          </span>
+          {% if bet.is_bete_noire %}
+            <span class="bn-badge">🎯 Bête Noire</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="bet-meta">
+        <span class="league-tag">🏆 {{ match.league_name }}</span>
+        <span class="time-tag">🕐 {{ match.match_date.strftime('%H:%M') }}</span>
+      </div>
+
+      <div class="bet-stats">
+        <div class="stat-row">
+          <span class="stat-label">Sélection</span>
+          <span class="stat-value accent-bold">{{ bet.selection }}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Cote</span>
+          <span class="stat-value mono">{{ "%.2f"|format(bet.best_odd) }}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Bookmaker</span>
+          <span class="stat-value bm-tag">{{ bet.best_bookmaker|replace('_fr','')|upper }}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Prob. estimée</span>
+          <span class="stat-value mono">{{ "%.1f"|format(bet.estimated_prob * 100) }}%</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Prob. implicite</span>
+          <span class="stat-value mono muted">{{ "%.1f"|format(bet.implied_prob * 100) }}%</span>
+        </div>
+        <div class="stat-row highlight">
+          <span class="stat-label">Edge détecté</span>
+          <span class="stat-value positive mono">+{{ "%.1f"|format(bet.edge * 100) }}%</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Confiance</span>
+          <span class="stat-value mono">{{ "%.0f"|format(bet.confidence * 100) }}%</span>
+        </div>
+        <div class="stat-row highlight">
+          <span class="stat-label">Mise recommandée</span>
+          <span class="stat-value accent-bold mono">{{ "%.2f"|format(bet.stake_units) }}u</span>
+        </div>
+      </div>
+
+      <div class="confidence-wrap">
+        <div class="confidence-bar" style="width:{{ (bet.confidence*100)|int }}%"></div>
+      </div>
+
+      {% if bet.reason %}
+      <div class="bet-reason">{{ bet.reason }}</div>
+      {% endif %}
+
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+{% endblock %}

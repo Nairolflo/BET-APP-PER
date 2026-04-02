@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %} — Historique{% endblock %}
+{% block header_title %}<h1>Historique des Paris</h1>{% endblock %}
+
+{% block content %}
+
+<section class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">ROI Global</div>
+    <div class="kpi-value {{ 'positive' if stats.roi >= 0 else 'negative' }}">
+      {{ '+' if stats.roi >= 0 else '' }}{{ stats.roi }}%
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Unités nettes</div>
+    <div class="kpi-value {{ 'positive' if stats.profit_units >= 0 else 'negative' }}">
+      {{ '+' if stats.profit_units >= 0 else '' }}{{ stats.profit_units }}u
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Taux de Réussite</div>
+    <div class="kpi-value neutral">{{ stats.win_rate }}%</div>
+    <div class="kpi-sub">{{ stats.won }}W / {{ stats.lost }}L</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Total Paris</div>
+    <div class="kpi-value accent">{{ stats.total }}</div>
+  </div>
+</section>
+
+<section class="section">
+  <h2 class="section-title">Tous les Paris Résolus</h2>
+
+  <div class="history-filters">
+    <select id="filter-market" onchange="filterHistory()">
+      <option value="">Tous les marchés</option>
+      <option value="1X2">1X2</option>
+      <option value="OVER_25">Over 2.5</option>
+      <option value="UNDER_25">Under 2.5</option>
+      <option value="BTTS">BTTS</option>
+    </select>
+    <select id="filter-status" onchange="filterHistory()">
+      <option value="">Tous les statuts</option>
+      <option value="WON">Gagnés ✅</option>
+      <option value="LOST">Perdus ❌</option>
+      <option value="VOID">Annulés ⚪</option>
+    </select>
+  </div>
+
+  <div class="table-wrap">
+    <table class="history-table" id="history-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Match</th>
+          <th>Ligue</th>
+          <th>Marché</th>
+          <th>Sél.</th>
+          <th>Cote</th>
+          <th>BM</th>
+          <th>Edge</th>
+          <th>Mise</th>
+          <th>Statut</th>
+          <th>Profit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bet in bets %}
+        {% set match = bet.match %}
+        <tr class="history-row"
+            data-market="{{ bet.market }}"
+            data-status="{{ bet.status }}">
+          <td class="mono muted">
+            {{ bet.detected_at.strftime('%d/%m/%y') if bet.detected_at else '—' }}
+          </td>
+          <td>
+            <span class="team-sm">{{ match.home_team.name if match.home_team else '?' }}</span>
+            <span class="muted"> vs </span>
+            <span class="team-sm">{{ match.away_team.name if match.away_team else '?' }}</span>
+            {% if bet.is_bete_noire %}<span class="bn-sm">🎯</span>{% endif %}
+          </td>
+          <td class="muted small">{{ match.league_name }}</td>
+          <td>
+            <span class="market-badge mkt-{{ bet.market|lower|replace('_','') }}">
+              {{ bet.market }}
+            </span>
+          </td>
+          <td class="accent-bold">{{ bet.selection }}</td>
+          <td class="mono">{{ "%.2f"|format(bet.best_odd) }}</td>
+          <td class="small muted">{{ bet.best_bookmaker|replace('_fr','')|upper }}</td>
+          <td class="mono positive">+{{ "%.1f"|format(bet.edge * 100) }}%</td>
+          <td class="mono">{{ "%.2f"|format(bet.stake_units) }}u</td>
+          <td>
+            <span class="status-badge st-{{ bet.status|lower }}">
+              {{ '✅ WON' if bet.status == 'WON' else ('❌ LOST' if bet.status == 'LOST' else ('⚪ VOID' if bet.status == 'VOID' else '⏳ PENDING')) }}
+            </span>
+          </td>
+          <td class="mono {{ 'positive' if bet.profit_units >= 0 else 'negative' }}">
+            {{ '+' if bet.profit_units >= 0 else '' }}{{ "%.2f"|format(bet.profit_units) }}u
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% endblock %}
