@@ -1,3 +1,4 @@
 [deploy]
-healthcheckPath = "/api/health"
+startCommand = "gunicorn run:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120"
+healthcheckPath = "/"
 healthcheckTimeout = 300
