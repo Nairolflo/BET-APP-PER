@@ -109,7 +109,8 @@ def handle_analyse(app):
                 run_detection()
                 send_detections_today()
         except Exception as e:
-            logger.error(f"Analyse manuelle erreur: {e}")
+            import traceback
+            logger.error(f"Analyse manuelle erreur: {e}\n{traceback.format_exc()}")
     threading.Thread(target=_run, daemon=True).start()
     return (
         "🔍 <b>Analyse manuelle lancée !</b>\n\n"
