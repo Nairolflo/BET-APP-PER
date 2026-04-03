@@ -79,7 +79,7 @@ def _upsert_match(raw: dict, league_id: int):
                 existing.result = "H" if h > a else ("A" if a > h else "D")
 
 
-def _get_or_create_team(data: dict, league_id: int) -> Team | None:
+def _get_or_create_team(data: dict, league_id: int = None):
     api_id = data.get("id")
     if not api_id:
         return None
@@ -88,7 +88,7 @@ def _get_or_create_team(data: dict, league_id: int) -> Team | None:
         team = Team(
             api_id=api_id,
             name=data.get("name", "Unknown"),
-            short_name=data.get("shortName") or data.get("tla", ""),
+            short_name=data.get("shortName") or data.get("tla") or "",
             country=data.get("area", {}).get("name", ""),
             logo_url=data.get("crest", ""),
         )
