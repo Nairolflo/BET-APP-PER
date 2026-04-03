@@ -58,7 +58,6 @@ def _upsert_match(raw: dict, league_id: int):
 
         match = Match(
             api_fixture_id=api_id,
-            league_id=league_id,
             league_name=raw.get("competition", {}).get("name", ""),
             season=season,
             matchday=raw.get("matchday"),
@@ -89,10 +88,9 @@ def _get_or_create_team(data: dict, league_id: int) -> Team | None:
         team = Team(
             api_id=api_id,
             name=data.get("name", "Unknown"),
-            short_name=data.get("shortName", ""),
-            tla=data.get("tla", ""),
+            short_name=data.get("shortName") or data.get("tla", ""),
+            country=data.get("area", {}).get("name", ""),
             logo_url=data.get("crest", ""),
-            league_id=league_id,
         )
         db.session.add(team)
         db.session.flush()
