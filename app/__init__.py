@@ -23,6 +23,45 @@ def create_app():
     _start_scheduler(app)
     return app
 
+def _auto_migrate(app):
+    from sqlalchemy import text
+    with app.app_context():
+        try:
+            db.session.execute(text(
+                "ALTER TABLE daily_summaries"
+                " ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),"
+                " ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();"
+                " ALTER TABLE teams"
+                " ADD COLUMN IF NOT EXISTS country VARCHAR(64),"
+                " ADD COLUMN IF NOT EXISTS short_name VARCHAR(64),"
+                " ADD COLUMN IF NOT EXISTS logo_url VARCHAR(256),"
+                " ADD COLUMN IF NOT EXISTS elo_rating FLOAT DEFAULT 1500,"
+                " ADD COLUMN IF NOT EXISTS elo_updated_at TIMESTAMP,"
+                " ADD COLUMN IF NOT EXISTS avg_goals_scored_home FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS avg_goals_conceded_home FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS avg_goals_scored_away FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS avg_goals_conceded_away FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS btts_rate_home FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS btts_rate_away FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS clean_sheet_rate_home FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS clean_sheet_rate_away FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS over25_rate_home FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS over25_rate_away FLOAT DEFAULT 0,"
+                " ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),"
+                " ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();"
+                " ALTER TABLE matches"
+                " ADD COLUMN IF NOT EXISTS round VARCHAR(64),"
+                " ADD COLUMN IF NOT EXISTS home_xg FLOAT,"
+                " ADD COLUMN IF NOT EXISTS away_xg FLOAT,"
+                " ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),"
+                " ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();"
+            ))
+            db.session.commit()
+            logger.info("✅ Auto-migration OK.")
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"Auto-migration: {e}")
+
 def _start_scheduler(app):
     if len(sys.argv) > 1 and sys.argv[1] in CLI_COMMANDS:
         logger.info("Commande CLI — scheduler non démarré.")
@@ -46,10 +85,13 @@ def _send_startup(app):
         try:
             token   = app.config.get("TELEGRAM_BOT_TOKEN","")
             chat_id = app.config.get("TELEGRAM_CHAT_ID","")
-            if not token or not chat_id: return
+            if not token or not chat_id:
+                return
             requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "parse_mode": "HTML",
+                json={
+                    "chat_id": chat_id,
+                    "parse_mode": "HTML",
                     "text": (
                         "✅ <b>ValueBet FC est en ligne !</b>\n\n"
                         "🤖 Bot opérationnel sur Railway.\n"
@@ -63,43 +105,11 @@ def _send_startup(app):
                          {"text":"🎯 Bets","callback_data":"cmd_bets"}],
                         [{"text":"⚙️ Paramètres","callback_data":"cmd_params"},
                          {"text":"❓ Aide","callback_data":"cmd_help"}],
-                    ]}},
-                timeout=10)
+                    ]},
+                },
+                timeout=10,
+            )
             logger.info("✅ Message Telegram démarrage envoyé.")
         except Exception as e:
             logger.error(f"Erreur Telegram startup: {e}")
     threading.Thread(target=_send, daemon=True).start()
-
-def _auto_migrate(app):
-    """Ajoute les colonnes manquantes au démarrage si besoin."""
-    from sqlalchemy import text
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                ALTER TABLE daily_summaries
-                    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
-                ALTER TABLE teams
-                    ADD COLUMN IF NOT EXISTS country VARCHAR(64),
-                    ADD COLUMN IF NOT EXISTS short_name VARCHAR(64),
-                    ADD COLUMN IF NOT EXISTS logo_url VARCHAR(256),
-                    ADD COLUMN IF NOT EXISTS elo_rating FLOAT DEFAULT 1500,
-                    ADD COLUMN IF NOT EXISTS elo_updated_at TIMESTAMP,
-                    ADD COLUMN IF NOT EXISTS avg_goals_scored_home FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS avg_goals_conceded_home FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS avg_goals_scored_away FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS avg_goals_conceded_away FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS btts_rate_home FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS btts_rate_away FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS clean_sheet_rate_home FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS clean_sheet_rate_away FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS over25_rate_home FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS over25_rate_away FLOAT DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
-                ALTER TABLE matches
-                    ADD COLUMN IF NOT EXISTS round VARCHAR(64),
-                    ADD COLUMN IF NOT EXISTS home_xg FLOAT,
-                    ADD COLUMN IF NOT EXISTS away_xg FLOAT,
-                    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
