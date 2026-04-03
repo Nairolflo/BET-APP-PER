@@ -30,7 +30,7 @@ def fetch_and_store_fixtures():
         raw_matches = fda.fetch_upcoming_matches(league_id, days_ahead=2)
         logger.info("Ligue %d: %d matchs récupérés.", league_id, len(raw_matches))
         for raw in raw_matches:
-            _upsert_match(raw, league_id)
+            _upsert_match(raw, league_id, league_name)
     db.session.commit()
 
 
