@@ -27,73 +27,65 @@ def fetch_and_store_fixtures():
     db.session.commit()
 
 
-def _upsert_match(raw: dict, league_id: int):
+def _upsert_match(raw: dict, league_id: int, league_name: str):
     api_id = raw.get("id")
     if not api_id:
         return
 
     home_raw = raw.get("homeTeam", {})
-    away_raw = raw.get("awayTeam", {})
+    away_raw  = raw.get("awayTeam", {})
     home = _get_or_create_team(home_raw, league_id)
     away = _get_or_create_team(away_raw, league_id)
     if not home or not away:
         return
 
     try:
+        from datetime import datetime
         match_date = datetime.fromisoformat(
             raw.get("utcDate", "").replace("Z", "+00:00")
         )
     except (ValueError, AttributeError):
         return
 
-    status = fda.parse_match_status(raw.get("status", "SCHEDULED"))
+    from app.services.football_data_api import parse_match_status
+    status = parse_match_status(raw.get("status", "SCHEDULED"))
+    score  = raw.get("score", {})
+    full   = score.get("fullTime", {})
+    home_g = full.get("home")
+    away_g = full.get("away")
+    result = None
+    if home_g is not None and away_g is not None:
+        result = "H" if home_g > away_g else ("A" if away_g > home_g else "D")
+
+    season_str = str(raw.get("season", {}).get("startDate", "2024"))[:4]
+    try:
+        season = int(season_str)
+    except (ValueError, TypeError):
+        season = 2024
+
     existing = Match.query.filter_by(api_fixture_id=api_id).first()
-
     if not existing:
-        season_str = raw.get("season", {}).get("startDate", "2024")
-        try:
-            season = int(str(season_str)[:4])
-        except (ValueError, TypeError):
-            season = 2024
-
-        match = Match(
+        m = Match(
             api_fixture_id=api_id,
-            league_name=raw.get("competition", {}).get("name", ""),
+            league_id=league_id,
+            league_name=league_name,
             season=season,
-            matchday=raw.get("matchday"),
-            stage=raw.get("stage", ""),
+            round=raw.get("matchday") or raw.get("round") or "",
             home_team_id=home.id,
             away_team_id=away.id,
             match_date=match_date,
             status=status,
+            home_goals=home_g,
+            away_goals=away_g,
+            result=result,
         )
-        db.session.add(match)
+        db.session.add(m)
     else:
-        existing.status = status
-        if status == "FINISHED":
-            ft = raw.get("score", {}).get("fullTime", {})
-            if ft.get("home") is not None:
-                existing.home_goals = ft["home"]
-                existing.away_goals = ft["away"]
-                h, a = existing.home_goals, existing.away_goals
-                existing.result = "H" if h > a else ("A" if a > h else "D")
-
-
-def _get_or_create_team(data: dict, league_id: int = None):
-    api_id = data.get("id")
-    if not api_id:
-        return None
-    team = Team.query.filter_by(api_id=api_id).first()
-    if not team:
-        team = Team(
-            api_id=api_id,
-            name=data.get("name", "Unknown"),
-            short_name=data.get("shortName") or data.get("tla") or "",
-            country=data.get("area", {}).get("name", ""),
-            logo_url=data.get("crest", ""),
-        )
-        db.session.add(team)
-        db.session.flush()
+        existing.status     = status
+        existing.home_goals = home_g
+        existing.away_goals = away_g
+        existing.result     = result
+    db.session.flush()
     return team
 
 
