@@ -44,7 +44,7 @@ class Config:
     # Ligues football-data.org
     MONITORED_LEAGUES = [
         int(x)
-        for x in os.environ.get("MONITORED_LEAGUES", "2021,2014,2002,2015,2019").split(",")
+        for x in os.environ.get("MONITORED_LEAGUES", "2021,2014,2002,2015,2019,2001,2003,2017").split(",")
     ]
 
     BETE_NOIRE_MIN_MATCHES = 4

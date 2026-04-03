@@ -33,8 +33,7 @@ MARKET_MAP = {
 }
 
 BOOKMAKERS_FR = [
-    "betclic_fr", "unibet_fr", "winamax_fr", "bwin_fr", "pmu_fr",
-    "betclic",    "unibet",    "winamax",    "bwin",
+    "betclic_fr", "winamax_fr", "unibet_fr",
 ]
 
 _key_index = 0
