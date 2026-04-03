@@ -112,7 +112,6 @@ def _upsert_match(raw: dict, league_id: int, league_name: str):
         existing.away_goals = away_g
         existing.result     = result
     db.session.flush()
-    return team
 
 
 # ── Cotes ──────────────────────────────────────────────────────────────
