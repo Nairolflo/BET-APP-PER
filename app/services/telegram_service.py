@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 
 def _send(app, text: str):
     """Envoie un message HTML via l'API Telegram (requests sync)."""
-    token   = app.config.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = app.config.get("TELEGRAM_CHAT_ID", "")
+    from app.config import Config
+    token   = (app.config.get("TELEGRAM_BOT_TOKEN", "") if app else "") or Config.TELEGRAM_BOT_TOKEN
+    chat_id = (app.config.get("TELEGRAM_CHAT_ID", "")   if app else "") or Config.TELEGRAM_CHAT_ID
     if not token or not chat_id:
         logger.warning("Telegram non configuré — message ignoré.")
         return
@@ -68,7 +69,7 @@ def send_detections(app, target_date: date):
             f"💰 Cote: <b>{bet.best_odd:.2f}</b> ({bet.best_bookmaker.replace('_fr','').upper()})\n"
             f"📈 Edge: <b>+{bet.edge*100:.1f}%</b> | Confiance: {bet.confidence*100:.0f}%\n"
             f"🎯 Prob estimée: {bet.estimated_prob*100:.1f}% vs implicite: {bet.implied_prob*100:.1f}%\n"
-            f"💵 Mise: <b>{bet.stake_units:.2f}u</b> ({bet.stake_units * app.config.get('UNIT_SIZE', 10):.0f}€)\n"
+            f"💵 Mise: <b>{bet.stake_units:.2f}u</b> ({bet.stake_units * (app.config.get('UNIT_SIZE', 10) if app else 10):.0f}€)\n"
         )
     _send(app, "\n".join(lines))
     logger.info(f"✅ {len(bets)} détection(s) Telegram envoyées.")
