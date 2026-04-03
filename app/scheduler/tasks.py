@@ -224,7 +224,7 @@ def _analyze_match(match: Match) -> int:
             stake_units=stake, confidence=conf,
             reason=engine.build_reason(market, selection, est_prob, implied, edge,
                                        form_h, form_a, bet_is_bn, bn_rate),
-            is_bete_noire=bet_is_bn, bete_noire_rate=bn_rate,
+            is_bete_noire=bet_is_bn,
         ))
         created += 1
     return created
