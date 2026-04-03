@@ -20,8 +20,27 @@ def create_app():
     with app.app_context():
         from app.models import team, match, odds, value_bet, daily_summary
     _auto_migrate(app)
+    _cleanup_invalid_bookmakers(app)
     _start_scheduler(app)
     return app
+
+
+def _cleanup_invalid_bookmakers(app):
+    """One-shot: supprime odds/valuebets hors bookmakers FR valides."""
+    try:
+        from app.models.odds import Odds
+        from app.models.value_bet import ValueBet
+        from app.extensions import db
+        VALID = {"betclic_fr", "winamax_fr", "unibet_fr"}
+        with app.app_context():
+            bad_o = Odds.query.filter(~Odds.bookmaker.in_(VALID)).delete(synchronize_session=False)
+            bad_v = ValueBet.query.filter(~ValueBet.best_bookmaker.in_(VALID)).delete(synchronize_session=False)
+            db.session.commit()
+            import logging
+            logging.getLogger(__name__).info("✅ Cleanup bookmakers: %d odds, %d valuebets supprimés.", bad_o, bad_v)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Cleanup bookmakers erreur: %s", e)
 
 def _auto_migrate(app):
     from sqlalchemy import text
