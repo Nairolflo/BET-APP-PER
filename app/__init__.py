@@ -80,6 +80,7 @@ def _auto_migrate(app):
                     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
                     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
                 ALTER TABLE teams
+                    ADD COLUMN IF NOT EXISTS country VARCHAR(64),
                     ADD COLUMN IF NOT EXISTS short_name VARCHAR(64),
                     ADD COLUMN IF NOT EXISTS logo_url VARCHAR(256),
                     ADD COLUMN IF NOT EXISTS elo_rating FLOAT DEFAULT 1500,
@@ -101,10 +102,4 @@ def _auto_migrate(app):
                     ADD COLUMN IF NOT EXISTS home_xg FLOAT,
                     ADD COLUMN IF NOT EXISTS away_xg FLOAT,
                     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
-            """))
-            db.session.commit()
-            logger.info("✅ Auto-migration OK.")
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"Auto-migration: {e}")
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
