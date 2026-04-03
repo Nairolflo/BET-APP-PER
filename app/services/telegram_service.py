@@ -69,7 +69,7 @@ def send_detections(app, target_date: date):
             f"💰 Cote: <b>{bet.best_odd:.2f}</b> ({bet.best_bookmaker.replace('_fr','').upper()})\n"
             f"📈 Edge: <b>+{bet.edge*100:.1f}%</b> | Confiance: {bet.confidence*100:.0f}%\n"
             f"🎯 Prob estimée: {bet.estimated_prob*100:.1f}% vs implicite: {bet.implied_prob*100:.1f}%\n"
-            f"💵 Mise: <b>{bet.stake_units:.2f}u</b> ({bet.stake_units * (app.config.get('UNIT_SIZE', 10) if app else 10):.0f}€)\n"
+            f"💵 Mise: <b>{bet.stake_units:.2f}u</b> "                f"({bet.stake_units * (app.config.get('UNIT_SIZE', 10) if app else 10):.0f}€) "                f"= <b>{bet.stake_units / (app.config.get('MAX_STAKE_UNITS', 2.0) if app else 2.0) * 2:.1f}% bankroll</b>\n"
         )
     _send(app, "\n".join(lines))
     logger.info(f"✅ {len(bets)} détection(s) Telegram envoyées.")

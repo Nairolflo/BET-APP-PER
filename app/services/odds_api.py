@@ -26,9 +26,19 @@ LEAGUE_SPORT_KEY = {
 }
 
 MARKET_MAP = {
-    "1X2":     "h2h",
-    "OVER_25": "totals",
-    "UNDER_25": "totals",
+    "1X2":          "h2h",
+    "OVER_25":      "totals",
+    "UNDER_25":     "totals",
+    "OVER_15":      "totals",
+    "UNDER_15":     "totals",
+    "OVER_35":      "totals",
+    "UNDER_35":     "totals",
+    "OVER_45":      "totals",
+    "UNDER_45":     "totals",
+    "HT_OVER_05":   "h1_totals",
+    "HT_UNDER_05":  "h1_totals",
+    "HT_OVER_15":   "h1_totals",
+    "HT_UNDER_15":  "h1_totals",
     "BTTS":    "btts",
 }
 
@@ -79,7 +89,7 @@ def fetch_odds_for_league(league_id: int) -> list:
         f"/sports/{sport_key}/odds",
         params={
             "regions":  "eu",
-            "markets":  "h2h,totals",
+            "markets":  "h2h,totals,h1_totals",
             "oddsFormat": "decimal",
         },
     )
@@ -107,6 +117,8 @@ def get_best_odd(all_odds: list, home_name: str, away_name: str,
             continue
 
         for bm in event.get("bookmakers", []):
+            if bm.get("key") not in BOOKMAKERS_FR:
+                continue
             for mkt in bm.get("markets", []):
                 if mkt.get("key") != api_market:
                     continue

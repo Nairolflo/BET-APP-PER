@@ -36,9 +36,9 @@ class Config:
     TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
     # Détection
-    EDGE_THRESHOLD = float(os.environ.get("VALUE_BET_EDGE_THRESHOLD", 0.05))
-    KELLY_FRACTION = float(os.environ.get("KELLY_FRACTION", 0.25))
-    MAX_STAKE_UNITS = float(os.environ.get("MAX_STAKE_UNITS", 3.0))
+    EDGE_THRESHOLD = float(os.environ.get("VALUE_BET_EDGE_THRESHOLD", 0.15))
+    KELLY_FRACTION = float(os.environ.get("KELLY_FRACTION", 0.15))
+    MAX_STAKE_UNITS = float(os.environ.get("MAX_STAKE_UNITS", 2.0))
     UNIT_SIZE = float(os.environ.get("UNIT_SIZE", 10.0))
 
     # Ligues football-data.org
