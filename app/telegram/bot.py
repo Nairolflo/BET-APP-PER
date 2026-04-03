@@ -141,10 +141,10 @@ def handle_check(app):
                        (bet.selection == "DRAW" and m.result == "D") or
                        (bet.selection == "AWAY" and m.result == "A"))
             elif bet.market == "BTTS":
-                btts = (m.home_score or 0) > 0 and (m.away_score or 0) > 0
+                btts = (m.home_goals or 0) > 0 and (m.away_goals or 0) > 0
                 won = (bet.selection == "YES") == btts
             elif bet.market == "O25":
-                total = (m.home_score or 0) + (m.away_score or 0)
+                total = (m.home_goals or 0) + (m.away_goals or 0)
                 won = (bet.selection == "OVER") == (total > 2.5)
             else:
                 continue
