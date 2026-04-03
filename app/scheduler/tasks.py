@@ -19,7 +19,14 @@ logger = logging.getLogger(__name__)
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 def fetch_and_store_fixtures():
+    LEAGUE_NAMES = {
+        2021:"Premier League", 2014:"La Liga", 2002:"Bundesliga",
+        2015:"Ligue 1", 2019:"Serie A", 2001:"Champions League",
+        2146:"Europa League", 2003:"Eredivisie", 2017:"Primeira Liga",
+        2013:"Série A", 2145:"MLS", 2024:"Liga Profesional",
+    }
     for league_id in Config.MONITORED_LEAGUES:
+        league_name = LEAGUE_NAMES.get(league_id, str(league_id))
         raw_matches = fda.fetch_upcoming_matches(league_id, days_ahead=2)
         logger.info("Ligue %d: %d matchs récupérés.", league_id, len(raw_matches))
         for raw in raw_matches:
