@@ -127,12 +127,14 @@ def compute_1x2_probs(home_team, away_team, home_recent, away_recent, h2h_matche
 
 # ── Over/Under ────────────────────────────────────────────────────────
 
-def compute_ou_probs(home_team, away_team, threshold: float = 2.5) -> dict:
+def compute_ou_probs(home_team, away_team, threshold: float = 2.5, half: bool = False) -> dict:
     mu_h = ((home_team.avg_goals_scored_home or 1.3) + (away_team.avg_goals_conceded_away or 1.1)) / 2
     mu_a = ((away_team.avg_goals_scored_away or 1.0) + (home_team.avg_goals_conceded_home or 1.1)) / 2
     mu_total = max(mu_h + mu_a, 0.1)
+    if half:
+        mu_total = mu_total / 2
     p_over = sum(_poisson_pmf(g, mu_total) for g in range(int(threshold) + 1, 20))
-    return {"OVER": p_over, "UNDER": 1 - p_over}
+    return {"OVER": round(p_over, 4), "UNDER": round(1 - p_over, 4)}
 
 
 # ── BTTS ──────────────────────────────────────────────────────────────
