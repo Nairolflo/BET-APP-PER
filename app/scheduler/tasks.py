@@ -167,7 +167,7 @@ def run_detection():
         db.func.date(Match.match_date) >= today,
         db.func.date(Match.match_date) <= today + timedelta(days=1),
     ).all()
-    detected = sum(_analyze_match(m) for m in matches if m.odds_entries.count())
+    detected = sum(_analyze_match(m) for m in matches if m.odds.count())
     db.session.commit()
     logger.info("Détection: %d value bets trouvés sur %d matchs.", detected, len(matches))
 
