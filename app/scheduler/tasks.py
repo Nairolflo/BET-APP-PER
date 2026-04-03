@@ -34,6 +34,25 @@ def fetch_and_store_fixtures():
     db.session.commit()
 
 
+
+def _get_or_create_team(data: dict, league_id: int = None):
+    """Retourne l'objet Team existant ou en crée un nouveau."""
+    api_id = data.get("id")
+    if not api_id:
+        return None
+    team = Team.query.filter_by(api_id=api_id).first()
+    if not team:
+        team = Team(
+            api_id=api_id,
+            name=data.get("name", "Unknown"),
+            short_name=data.get("shortName") or data.get("tla") or "",
+            country=data.get("area", {}).get("name", ""),
+            logo_url=data.get("crest", ""),
+        )
+        db.session.add(team)
+        db.session.flush()
+    return team
+
 def _upsert_match(raw: dict, league_id: int, league_name: str):
     api_id = raw.get("id")
     if not api_id:
