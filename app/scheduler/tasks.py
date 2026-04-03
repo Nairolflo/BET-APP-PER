@@ -70,7 +70,6 @@ def _upsert_match(raw: dict, league_id: int, league_name: str):
             league_id=league_id,
             league_name=league_name,
             season=season,
-            round=raw.get("matchday") or raw.get("round") or "",
             home_team_id=home.id,
             away_team_id=away.id,
             match_date=match_date,
