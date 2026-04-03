@@ -79,6 +79,23 @@ def _auto_migrate(app):
                 ALTER TABLE daily_summaries
                     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
                     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+                ALTER TABLE teams
+                    ADD COLUMN IF NOT EXISTS short_name VARCHAR(64),
+                    ADD COLUMN IF NOT EXISTS logo_url VARCHAR(256),
+                    ADD COLUMN IF NOT EXISTS elo_rating FLOAT DEFAULT 1500,
+                    ADD COLUMN IF NOT EXISTS elo_updated_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS avg_goals_scored_home FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS avg_goals_conceded_home FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS avg_goals_scored_away FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS avg_goals_conceded_away FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS btts_rate_home FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS btts_rate_away FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS clean_sheet_rate_home FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS clean_sheet_rate_away FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS over25_rate_home FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS over25_rate_away FLOAT DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
                 ALTER TABLE matches
                     ADD COLUMN IF NOT EXISTS round VARCHAR(64),
                     ADD COLUMN IF NOT EXISTS home_xg FLOAT,
