@@ -84,7 +84,7 @@ def fetch_odds_for_league(league_id: int) -> list:
     data = _get(
         f"/sports/{sport_key}/odds",
         params={
-            "regions":  "eu",
+            "regions":  "fr",
             "markets":  "h2h,totals",
             "oddsFormat": "decimal",
         },
