@@ -127,14 +127,70 @@ def compute_1x2_probs(home_team, away_team, home_recent, away_recent, h2h_matche
 
 # ── Over/Under ────────────────────────────────────────────────────────
 
-def compute_ou_probs(home_team, away_team, threshold: float = 2.5, half: bool = False) -> dict:
+def compute_ou_probs(home_team, away_team, threshold: float = 2.5,
+                     half: bool = False,
+                     home_recent: list = None,
+                     away_recent: list = None,
+                     h2h_matches: list = None) -> dict:
+    """Poisson Over/Under — fusionne stats générales + forme récente + H2H.
+    Retourne TOUS les thresholds (0.5, 1.5, 2.5, 3.5, 4.5) FT ou HT.
+    """
+    # ── 1. mu de base (stats générales) ──────────────────────────────
     mu_h = ((home_team.avg_goals_scored_home or 1.3) + (away_team.avg_goals_conceded_away or 1.1)) / 2
     mu_a = ((away_team.avg_goals_scored_away or 1.0) + (home_team.avg_goals_conceded_home or 1.1)) / 2
+
+    # ── 2. ajustement forme récente ───────────────────────────────────
+    def _avg_goals_recent(matches, team_id):
+        if not matches:
+            return None
+        goals = []
+        for m in matches[-5:]:
+            g = m.home_goals if m.home_team_id == team_id else m.away_goals
+            if g is not None:
+                goals.append(g)
+        return sum(goals) / len(goals) if goals else None
+
+    if home_recent:
+        fg = _avg_goals_recent(home_recent, home_team.id)
+        if fg is not None:
+            mu_h = 0.6 * mu_h + 0.4 * fg
+    if away_recent:
+        fg = _avg_goals_recent(away_recent, away_team.id)
+        if fg is not None:
+            mu_a = 0.6 * mu_a + 0.4 * fg
+
     mu_total = max(mu_h + mu_a, 0.1)
+
+    # ── 3. ajustement H2H ─────────────────────────────────────────────
+    if h2h_matches and len(h2h_matches) >= 3:
+        h2h_goals = [
+            (m.home_goals or 0) + (m.away_goals or 0)
+            for m in h2h_matches if m.home_goals is not None
+        ]
+        if h2h_goals:
+            mu_h2h = sum(h2h_goals) / len(h2h_goals)
+            mu_total = 0.5 * mu_total + 0.5 * mu_h2h
+
+    # ── 4. mi-temps ───────────────────────────────────────────────────
     if half:
         mu_total = mu_total / 2
-    p_over = sum(_poisson_pmf(g, mu_total) for g in range(int(threshold) + 1, 20))
-    return {"OVER": round(p_over, 4), "UNDER": round(1 - p_over, 4)}
+
+    # ── 5. calcul pour tous les thresholds ───────────────────────────
+    def _p_over(thr):
+        return round(sum(_poisson_pmf(g, mu_total) for g in range(int(thr) + 1, 20)), 4)
+
+    prefix = "HT_" if half else ""
+    result = {}
+    for thr, label in [(0.5, "05"), (1.5, "15"), (2.5, "25"), (3.5, "35"), (4.5, "45")]:
+        p = _p_over(thr)
+        result[f"{prefix}OVER_{label}"]  = p
+        result[f"{prefix}UNDER_{label}"] = round(1 - p, 4)
+
+    # Aliases rétrocompat pour l'appel threshold= unique
+    key_label = {0.5: "05", 1.5: "15", 2.5: "25", 3.5: "35", 4.5: "45"}.get(threshold, "25")
+    result["OVER"]  = result.get(f"{prefix}OVER_{key_label}",  result.get(f"{prefix}OVER_25",  0))
+    result["UNDER"] = result.get(f"{prefix}UNDER_{key_label}", result.get(f"{prefix}UNDER_25", 0))
+    return result
 
 
 # ── BTTS ──────────────────────────────────────────────────────────────

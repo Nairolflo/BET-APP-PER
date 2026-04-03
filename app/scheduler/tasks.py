@@ -184,7 +184,15 @@ def _analyze_match(match: Match) -> int:
     form_a = engine.compute_form_score(away_recent, away.id)
 
     p1x2 = engine.compute_1x2_probs(home, away, home_recent, away_recent, h2h)
-    pou = engine.compute_ou_probs(home, away)
+    pou    = engine.compute_ou_probs(home, away, half=False,
+                                     home_recent=home_recent,
+                                     away_recent=away_recent,
+                                     h2h_matches=h2h)
+    pou_ht = engine.compute_ou_probs(home, away, half=True,
+                                     home_recent=home_recent,
+                                     away_recent=away_recent,
+                                     h2h_matches=h2h)
+    pou.update(pou_ht)
     pbtts = engine.compute_btts_probs(home, away)
     is_bn, bn_rate, _ = engine.detect_bete_noire(h2h, away.id)
 
