@@ -139,7 +139,7 @@ def _store_match_odds(match: Match, all_odds: list):
         ("BTTS", "YES"), ("BTTS", "NO"),
     ]
     for market, selection in pairs:
-        best_odd, best_bm = odds_api.get_best_odd(
+        best_odd, best_bm, value_allowed = odds_api.get_best_odd(
             all_odds, home_name, away_name, market, selection
         )
         if not best_odd:

@@ -139,3 +139,43 @@ def _matches_selection(outcome: dict, market: str, selection: str) -> bool:
     elif market == "BTTS":
         return name == selection.upper()
     return False
+
+
+def get_market_consensus(all_odds: list, home_name: str, away_name: str,
+                         market: str, selection: str) -> float:
+    """
+    Calcule la fair odd consensus sur TOUS les bookmakers (FR + US/EU).
+    Retourne la fair odd (ex: 1.72), ou 0.0 si aucune donnée.
+    """
+    api_market = MARKET_MAP.get(market)
+    if not api_market:
+        return 0.0
+
+    home_lower = home_name.lower()
+    away_lower = away_name.lower()
+    probas = []
+
+    for event in all_odds:
+        h = event.get("home_team", "").lower()
+        a = event.get("away_team", "").lower()
+        if not (home_lower in h or h in home_lower):
+            continue
+        if not (away_lower in a or a in away_lower):
+            continue
+        for bm in event.get("bookmakers", []):
+            if bm.get("key") not in BOOKMAKERS_FR + BOOKMAKERS_DISPLAY:
+                continue
+            for mkt in bm.get("markets", []):
+                if mkt.get("key") != api_market:
+                    continue
+                for outcome in mkt.get("outcomes", []):
+                    if _matches_selection(outcome, market, selection):
+                        odd = float(outcome.get("price", 0))
+                        if odd > 1.0:
+                            probas.append(1 / odd)
+
+    if not probas:
+        return 0.0
+
+    avg_proba = sum(probas) / len(probas)
+    return round(1 / avg_proba, 3)
